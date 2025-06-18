@@ -15,6 +15,7 @@
 #   "python-dotenv",
 #   "python-slugify",
 #   "google-genai",
+#   "filetype"
 # ]
 # ///
 
@@ -42,6 +43,8 @@ from google.genai import types
 from collections import defaultdict
 
 
+import filetype
+import re
 # === Constants ===
 from dotenv import load_dotenv
 import os
@@ -69,17 +72,30 @@ model = SentenceTransformer("./local_model")
 
 # === Utility ===
 def get_image_mimetype(base64_string):
-    image_data = base64.b64decode(base64_string)
+    # Remove whitespace and newlines
+    s = base64_string.strip().replace('\n', '').replace(' ', '')
+    # Remove any non-base64 characters (just in case)
+    s = re.sub(r'[^A-Za-z0-9+/=]', '', s)
+    # Fix padding
+    missing_padding = len(s) % 4
+    if missing_padding:
+        s += '=' * (4 - missing_padding)
+    image_data = base64.b64decode(s)
+    # Now continue as before
+    kind = filetype.guess(image_data)
+    if kind is not None:
+        return kind.mime, kind.extension, image_data
     try:
+        from PIL import Image
+        import mimetypes
         img = Image.open(BytesIO(image_data))
-        img_type = img.format.lower()  # e.g. 'jpeg', 'png'
+        img_type = img.format.lower()
         mime_type = f'image/{img_type}'
         extension = mimetypes.guess_extension(mime_type) or f".{img_type}"
+        return mime_type, extension, image_data
     except Exception as e:
-        print(f"Image type detection failed: {e}")
-        mime_type = 'application/octet-stream'
-        extension = '.bin'
-    return mime_type, extension, image_data
+        raise ValueError("Could not determine the mimetype for your file — please ensure a valid image is provided.")
+
 
 # Dummy placeholder for your Gemini integration
 def get_image_description(image_bytes, mime_type):
@@ -329,4 +345,3 @@ def api_answer(request: QueryRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app,host="0.0.0.0",port=7860)
-# answer("If a student scores 10/10 on GA4 as well as a bonus, how would it appear on the dashboard?",None)
